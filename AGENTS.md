@@ -4,12 +4,13 @@
 
 **BookMeet** is a web app to book time in calendar for meetings.
 
-## Bootstrapping
+## Layout
 
-- Standard Go layout: entrypoint under `cmd/`, non-public packages under `internal/`.
+- `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, wires routes.
+- `internal/hello/` — greeting handler for `GET /hello`.
 
-## Maintenance of this file
+## Commands
 
-- Replace this placeholder with real commands and structure as soon as they land
-  (Makefile, CI, codegen, non-obvious test setup, env requirements).
-- Only record things an agent could not infer from the repo itself.
+- Run: `go run ./cmd/bookmeet`
+- Build: `go build ./...`
+- Check: `go vet ./...`
