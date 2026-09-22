@@ -7,7 +7,8 @@
 ## Layout
 
 - `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, wires routes.
-- `internal/hello/` — greeting handler for `GET /hello`.
+- `internal/hello/` — greeting page handler for `GET /hello`; body logger for `POST /hello`.
+- `internal/home/` — root page handler for `GET /`.
 
 ## Commands
 
