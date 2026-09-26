@@ -15,3 +15,4 @@
 - Run: `go run ./cmd/bookmeet`
 - Build: `go build ./...`
 - Check: `go vet ./...`
+- Test: `go test ./...`
