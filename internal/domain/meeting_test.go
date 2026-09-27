@@ -272,3 +272,55 @@ func TestMeetingInProgressIsNotFrozen(t *testing.T) {
 		t.Fatalf("AddGuest during the meeting: %v", err)
 	}
 }
+
+func TestSnapshotRoundTrip(t *testing.T) {
+	m := newMeeting(t)
+	if err := m.AddGuest("u-guest", now); err != nil {
+		t.Fatalf("AddGuest: %v", err)
+	}
+	if err := m.Cancel(now); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	r, err := domain.MeetingFromSnapshot(m.Snapshot())
+	if err != nil {
+		t.Fatalf("MeetingFromSnapshot: %v", err)
+	}
+	if r.Status() != m.Status() || r.Status() != domain.Cancelled {
+		t.Errorf("Status = %v, want %v (Cancelled)", r.Status(), m.Status())
+	}
+	if r.ID() != m.ID() || r.OwnerID() != m.OwnerID() || r.Title() != m.Title() {
+		t.Errorf("identity fields differ: %+v", r.Snapshot())
+	}
+	if !r.Start().Equal(m.Start()) || r.Duration() != m.Duration() || r.Description() != m.Description() {
+		t.Errorf("detail fields differ: %+v", r.Snapshot())
+	}
+	if got := r.Guests(); len(got) != 1 || got[0] != "u-guest" {
+		t.Errorf("Guests = %v", got)
+	}
+	if r.CancelledAt() == nil || !r.CancelledAt().Equal(now) {
+		t.Errorf("CancelledAt = %v, want %v", r.CancelledAt(), now)
+	}
+}
+
+func TestMeetingFromSnapshotRejectsCorrupt(t *testing.T) {
+	m := newMeeting(t)
+
+	ownerAsGuest := m.Snapshot()
+	ownerAsGuest.Guests = []domain.UserID{"u-owner"}
+	if _, err := domain.MeetingFromSnapshot(ownerAsGuest); !errors.Is(err, domain.ErrInvalidSnapshot) {
+		t.Errorf("owner in guests: want ErrInvalidSnapshot, got %v", err)
+	}
+
+	noOwner := m.Snapshot()
+	noOwner.OwnerID = ""
+	if _, err := domain.MeetingFromSnapshot(noOwner); !errors.Is(err, domain.ErrInvalidSnapshot) {
+		t.Errorf("empty owner: want ErrInvalidSnapshot, got %v", err)
+	}
+
+	badDuration := m.Snapshot()
+	badDuration.Duration = 90 * time.Second
+	if _, err := domain.MeetingFromSnapshot(badDuration); !errors.Is(err, domain.ErrInvalidSnapshot) {
+		t.Errorf("bad duration: want ErrInvalidSnapshot, got %v", err)
+	}
+}

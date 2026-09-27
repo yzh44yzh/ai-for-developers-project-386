@@ -14,6 +14,7 @@ var (
 	ErrNotGuest         = errors.New("user is not a guest of this meeting")
 	ErrMeetingCancelled = errors.New("meeting is cancelled")
 	ErrMeetingFrozen    = errors.New("meeting is in the past and its record is frozen")
+	ErrInvalidSnapshot  = errors.New("invalid meeting snapshot")
 )
 
 type MeetingID string
@@ -36,7 +37,7 @@ type Meeting struct {
 	duration    time.Duration
 	description string
 	guests      map[UserID]struct{}
-	cancelled   bool
+	cancelledAt *time.Time
 }
 
 // NewMeeting creates a Meeting owned by ownerID. The Start must lie in
@@ -66,10 +67,13 @@ func (m Meeting) Start() time.Time        { return m.start }
 func (m Meeting) Duration() time.Duration { return m.duration }
 func (m Meeting) Description() string     { return m.description }
 
+// CancelledAt reports when the Meeting was cancelled, or nil if it was not.
+func (m Meeting) CancelledAt() *time.Time { return m.cancelledAt }
+
 // Status is derived: Cancelled if the Owner cancelled, Draft while the
 // Meeting has no Guests, Scheduled otherwise.
 func (m Meeting) Status() Status {
-	if m.cancelled {
+	if m.cancelledAt != nil {
 		return Cancelled
 	}
 	if len(m.guests) == 0 {
@@ -100,7 +104,7 @@ func (m Meeting) checkMutable(now time.Time) error {
 	if m.frozen(now) {
 		return ErrMeetingFrozen
 	}
-	if m.cancelled {
+	if m.cancelledAt != nil {
 		return ErrMeetingCancelled
 	}
 	return nil
@@ -142,7 +146,7 @@ func (m *Meeting) Cancel(now time.Time) error {
 	if err := m.checkMutable(now); err != nil {
 		return err
 	}
-	m.cancelled = true
+	m.cancelledAt = &now
 	return nil
 }
 
@@ -161,4 +165,62 @@ func (m *Meeting) EditDetails(title string, start time.Time, duration time.Durat
 	m.duration = duration
 	m.description = description
 	return nil
+}
+
+// MeetingSnapshot is the persistable state of a Meeting. It exists for
+// store adapters; application code should use NewMeeting and the Meeting
+// methods instead.
+type MeetingSnapshot struct {
+	ID          MeetingID
+	OwnerID     UserID
+	Title       string
+	Start       time.Time
+	Duration    time.Duration
+	Description string
+	Guests      []UserID
+	CancelledAt *time.Time
+}
+
+// Snapshot captures the Meeting's persistable state.
+func (m Meeting) Snapshot() MeetingSnapshot {
+	return MeetingSnapshot{
+		ID:          m.id,
+		OwnerID:     m.ownerID,
+		Title:       m.title,
+		Start:       m.start,
+		Duration:    m.duration,
+		Description: m.description,
+		Guests:      m.Guests(),
+		CancelledAt: m.cancelledAt,
+	}
+}
+
+// MeetingFromSnapshot reconstitutes a Meeting from persisted state. It
+// exists for store adapters. Creation-time rules are not re-checked (a
+// persisted Meeting may have a past Start), but structural invariants are:
+// a snapshot that violates them is corrupt and returns ErrInvalidSnapshot.
+func MeetingFromSnapshot(s MeetingSnapshot) (Meeting, error) {
+	if s.ID == "" || s.OwnerID == "" {
+		return Meeting{}, ErrInvalidSnapshot
+	}
+	if s.Duration <= 0 || s.Duration%time.Minute != 0 {
+		return Meeting{}, ErrInvalidSnapshot
+	}
+	guests := make(map[UserID]struct{}, len(s.Guests))
+	for _, id := range s.Guests {
+		if id == s.OwnerID {
+			return Meeting{}, ErrInvalidSnapshot
+		}
+		guests[id] = struct{}{}
+	}
+	return Meeting{
+		id:          s.ID,
+		ownerID:     s.OwnerID,
+		title:       s.Title,
+		start:       s.Start,
+		duration:    s.Duration,
+		description: s.Description,
+		guests:      guests,
+		cancelledAt: s.CancelledAt,
+	}, nil
 }
