@@ -7,6 +7,7 @@
 ## Layout
 
 - `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, wires routes.
+- `internal/domain/` — core domain model (see `CONTEXT.md`): User store, Meeting with the Draft ⇄ Scheduled → Cancelled lifecycle. Pure Go, `now time.Time` injected into mutating methods.
 - `internal/hello/` — greeting page handler for `GET /hello`; body logger for `POST /hello`.
 - `internal/home/` — root page handler for `GET /`.
 - `.opencode/skills/` — project skills from github.com/mattpocock/skills (installed manually, editable).
