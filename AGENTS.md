@@ -18,7 +18,7 @@
 - Run: `go run ./cmd/bookmeet`
 - Build: `go build ./...`
 - Check: `go vet ./...`
-- Test: `go test ./...` — integration tests in `internal/postgres/` need `DATABASE_URL` set (they truncate all tables; never point them at data you care about) and skip otherwise.
+- Test: `go test ./...` — integration tests in `internal/postgres/` need `TEST_DATABASE_URL` set (they truncate all tables; never point them at data you care about) and skip otherwise.
 
 ## Agent skills
 

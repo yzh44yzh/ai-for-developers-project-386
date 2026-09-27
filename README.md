@@ -29,7 +29,7 @@ cd ai-for-developers-project-386
 
 ```bash
 go run ./cmd/bookmeet    # сервис на :8080
-go test ./...            # интеграционные тесты требуют DATABASE_URL, иначе пропускаются
+go test ./...            # интеграционные тесты требуют TEST_DATABASE_URL, иначе пропускаются
 ```
 
 ---

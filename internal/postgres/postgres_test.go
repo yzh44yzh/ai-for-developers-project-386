@@ -13,14 +13,14 @@ import (
 	"github.com/yzh44yzh/bookmeet/internal/postgres"
 )
 
-// testStores connects to the database named by DATABASE_URL, migrates it,
-// and truncates all tables. Never point this at a database with data you
-// care about.
+// testStores connects to the database named by TEST_DATABASE_URL, migrates
+// it, and truncates all tables. Never point this at a database with data
+// you care about.
 func testStores(t *testing.T) (domain.UserStore, domain.MeetingStore) {
 	t.Helper()
-	dsn := os.Getenv("DATABASE_URL")
+	dsn := os.Getenv("TEST_DATABASE_URL")
 	if dsn == "" {
-		t.Skip("DATABASE_URL not set; skipping integration test")
+		t.Skip("TEST_DATABASE_URL not set; skipping integration test")
 	}
 	ctx := context.Background()
 
