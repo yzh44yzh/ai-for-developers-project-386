@@ -1,6 +1,6 @@
 -- +goose Up
 CREATE TABLE users (
-    id          text PRIMARY KEY,
+    id          uuid PRIMARY KEY,
     first_name  text NOT NULL,
     last_name   text NOT NULL,
     description text NOT NULL DEFAULT '',
@@ -8,8 +8,8 @@ CREATE TABLE users (
 );
 
 CREATE TABLE meetings (
-    id               text PRIMARY KEY,
-    owner_id         text NOT NULL REFERENCES users (id),
+    id               uuid PRIMARY KEY,
+    owner_id         uuid NOT NULL REFERENCES users (id),
     title            text NOT NULL,
     start            timestamptz NOT NULL,
     duration_minutes integer NOT NULL CHECK (duration_minutes > 0),
@@ -18,8 +18,8 @@ CREATE TABLE meetings (
 );
 
 CREATE TABLE meeting_guests (
-    meeting_id text NOT NULL REFERENCES meetings (id),
-    user_id    text NOT NULL REFERENCES users (id),
+    meeting_id uuid NOT NULL REFERENCES meetings (id),
+    user_id    uuid NOT NULL REFERENCES users (id),
     PRIMARY KEY (meeting_id, user_id)
 );
 

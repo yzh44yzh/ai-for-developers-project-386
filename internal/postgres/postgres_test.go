@@ -39,16 +39,37 @@ func testStores(t *testing.T) (domain.UserStore, domain.MeetingStore) {
 	return postgres.NewUsers(pool), postgres.NewMeetings(pool)
 }
 
+var now = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
+
+func mustUser(t *testing.T, users domain.UserStore, email string) domain.UserID {
+	t.Helper()
+	id := domain.NewUserID()
+	u := domain.User{ID: id, FirstName: "F", LastName: "L", Email: email}
+	if err := users.Add(context.Background(), u); err != nil {
+		t.Fatalf("Add user: %v", err)
+	}
+	return id
+}
+
+func mustMeeting(t *testing.T, ownerID domain.UserID) domain.Meeting {
+	t.Helper()
+	m, err := domain.NewMeeting(domain.NewMeetingID(), ownerID, "Sync", now.Add(time.Hour), 30*time.Minute, "weekly", now)
+	if err != nil {
+		t.Fatalf("NewMeeting: %v", err)
+	}
+	return m
+}
+
 func TestUserAddAndGet(t *testing.T) {
 	users, _ := testStores(t)
 	ctx := context.Background()
 
-	ada := domain.User{ID: "u1", FirstName: "Ada", LastName: "Lovelace", Description: "First programmer", Email: "ada@example.com"}
+	ada := domain.User{ID: domain.NewUserID(), FirstName: "Ada", LastName: "Lovelace", Description: "First programmer", Email: "ada@example.com"}
 	if err := users.Add(ctx, ada); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	got, err := users.Get(ctx, "u1")
+	got, err := users.Get(ctx, ada.ID)
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -60,7 +81,7 @@ func TestUserAddAndGet(t *testing.T) {
 func TestUserGetNotFound(t *testing.T) {
 	users, _ := testStores(t)
 
-	_, err := users.Get(context.Background(), "u-missing")
+	_, err := users.Get(context.Background(), domain.NewUserID())
 	if !errors.Is(err, domain.ErrUserNotFound) {
 		t.Fatalf("want ErrUserNotFound, got %v", err)
 	}
@@ -70,51 +91,34 @@ func TestUserRejectsDuplicates(t *testing.T) {
 	users, _ := testStores(t)
 	ctx := context.Background()
 
-	if err := users.Add(ctx, domain.User{ID: "u1", Email: "ada@example.com"}); err != nil {
+	id := domain.NewUserID()
+	if err := users.Add(ctx, domain.User{ID: id, Email: "ada@example.com"}); err != nil {
 		t.Fatalf("Add: %v", err)
 	}
 
-	if err := users.Add(ctx, domain.User{ID: "u1", Email: "grace@example.com"}); !errors.Is(err, domain.ErrUserIDTaken) {
+	if err := users.Add(ctx, domain.User{ID: id, Email: "grace@example.com"}); !errors.Is(err, domain.ErrUserIDTaken) {
 		t.Errorf("duplicate ID: want ErrUserIDTaken, got %v", err)
 	}
-	if err := users.Add(ctx, domain.User{ID: "u2", Email: "ada@example.com"}); !errors.Is(err, domain.ErrEmailTaken) {
+	if err := users.Add(ctx, domain.User{ID: domain.NewUserID(), Email: "ada@example.com"}); !errors.Is(err, domain.ErrEmailTaken) {
 		t.Errorf("duplicate email: want ErrEmailTaken, got %v", err)
 	}
-}
-
-var now = time.Date(2026, 9, 27, 12, 0, 0, 0, time.UTC)
-
-func mustUser(t *testing.T, users domain.UserStore, id, email string) {
-	t.Helper()
-	if err := users.Add(context.Background(), domain.User{ID: domain.UserID(id), FirstName: "F", LastName: "L", Email: email}); err != nil {
-		t.Fatalf("Add user: %v", err)
-	}
-}
-
-func mustMeeting(t *testing.T, id domain.MeetingID, ownerID domain.UserID) domain.Meeting {
-	t.Helper()
-	m, err := domain.NewMeeting(id, ownerID, "Sync", now.Add(time.Hour), 30*time.Minute, "weekly", now)
-	if err != nil {
-		t.Fatalf("NewMeeting: %v", err)
-	}
-	return m
 }
 
 func TestMeetingCreateAndGet(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
 
-	m := mustMeeting(t, "m1", "u-owner")
+	m := mustMeeting(t, ownerID)
 	if err := meetings.Create(ctx, m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := meetings.Get(ctx, "m1")
+	got, err := meetings.Get(ctx, m.ID())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
-	if got.Title() != "Sync" || got.OwnerID() != "u-owner" || got.Description() != "weekly" {
+	if got.Title() != "Sync" || got.OwnerID() != ownerID || got.Description() != "weekly" {
 		t.Errorf("got %+v", got.Snapshot())
 	}
 	if !got.Start().Equal(m.Start()) || got.Duration() != m.Duration() {
@@ -128,25 +132,25 @@ func TestMeetingCreateAndGet(t *testing.T) {
 func TestMeetingCreatePersistsGuests(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
-	mustUser(t, users, "u-guest", "guest@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
+	guestID := mustUser(t, users, "guest@example.com")
 
-	m := mustMeeting(t, "m1", "u-owner")
-	if err := m.AddGuest("u-guest", now); err != nil {
+	m := mustMeeting(t, ownerID)
+	if err := m.AddGuest(guestID, now); err != nil {
 		t.Fatalf("AddGuest: %v", err)
 	}
 	if err := meetings.Create(ctx, m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	got, err := meetings.Get(ctx, "m1")
+	got, err := meetings.Get(ctx, m.ID())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Status() != domain.Scheduled {
 		t.Errorf("Status = %v, want Scheduled", got.Status())
 	}
-	if guests := got.Guests(); len(guests) != 1 || guests[0] != "u-guest" {
+	if guests := got.Guests(); len(guests) != 1 || guests[0] != guestID {
 		t.Errorf("Guests = %v", guests)
 	}
 }
@@ -154,7 +158,7 @@ func TestMeetingCreatePersistsGuests(t *testing.T) {
 func TestMeetingGetNotFound(t *testing.T) {
 	_, meetings := testStores(t)
 
-	_, err := meetings.Get(context.Background(), "m-missing")
+	_, err := meetings.Get(context.Background(), domain.NewMeetingID())
 	if !errors.Is(err, domain.ErrMeetingNotFound) {
 		t.Fatalf("want ErrMeetingNotFound, got %v", err)
 	}
@@ -163,12 +167,12 @@ func TestMeetingGetNotFound(t *testing.T) {
 func TestMeetingList(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
 
-	if err := meetings.Create(ctx, mustMeeting(t, "m1", "u-owner")); err != nil {
+	if err := meetings.Create(ctx, mustMeeting(t, ownerID)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := meetings.Create(ctx, mustMeeting(t, "m2", "u-owner")); err != nil {
+	if err := meetings.Create(ctx, mustMeeting(t, ownerID)); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
@@ -184,38 +188,39 @@ func TestMeetingList(t *testing.T) {
 func TestMeetingUpdateAddsAndRemovesGuests(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
-	mustUser(t, users, "u-guest", "guest@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
+	guestID := mustUser(t, users, "guest@example.com")
 
-	if err := meetings.Create(ctx, mustMeeting(t, "m1", "u-owner")); err != nil {
+	m := mustMeeting(t, ownerID)
+	if err := meetings.Create(ctx, m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 
-	err := meetings.Update(ctx, "m1", func(m *domain.Meeting) error {
-		return m.AddGuest("u-guest", now)
+	err := meetings.Update(ctx, m.ID(), func(m *domain.Meeting) error {
+		return m.AddGuest(guestID, now)
 	})
 	if err != nil {
 		t.Fatalf("Update AddGuest: %v", err)
 	}
 
-	got, err := meetings.Get(ctx, "m1")
+	got, err := meetings.Get(ctx, m.ID())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
 	if got.Status() != domain.Scheduled {
 		t.Errorf("Status = %v, want Scheduled", got.Status())
 	}
-	if guests := got.Guests(); len(guests) != 1 || guests[0] != "u-guest" {
+	if guests := got.Guests(); len(guests) != 1 || guests[0] != guestID {
 		t.Errorf("Guests = %v", guests)
 	}
 
-	err = meetings.Update(ctx, "m1", func(m *domain.Meeting) error {
-		return m.RemoveGuest("u-guest", now)
+	err = meetings.Update(ctx, m.ID(), func(m *domain.Meeting) error {
+		return m.RemoveGuest(guestID, now)
 	})
 	if err != nil {
 		t.Fatalf("Update RemoveGuest: %v", err)
 	}
-	got, _ = meetings.Get(ctx, "m1")
+	got, _ = meetings.Get(ctx, m.ID())
 	if got.Status() != domain.Draft {
 		t.Errorf("Status = %v, want Draft after last Guest left", got.Status())
 	}
@@ -224,16 +229,17 @@ func TestMeetingUpdateAddsAndRemovesGuests(t *testing.T) {
 func TestMeetingUpdateCancelPersists(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
 
-	if err := meetings.Create(ctx, mustMeeting(t, "m1", "u-owner")); err != nil {
+	m := mustMeeting(t, ownerID)
+	if err := meetings.Create(ctx, m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
-	if err := meetings.Update(ctx, "m1", func(m *domain.Meeting) error { return m.Cancel(now) }); err != nil {
+	if err := meetings.Update(ctx, m.ID(), func(m *domain.Meeting) error { return m.Cancel(now) }); err != nil {
 		t.Fatalf("Update Cancel: %v", err)
 	}
 
-	got, err := meetings.Get(ctx, "m1")
+	got, err := meetings.Get(ctx, m.ID())
 	if err != nil {
 		t.Fatalf("Get: %v", err)
 	}
@@ -241,8 +247,8 @@ func TestMeetingUpdateCancelPersists(t *testing.T) {
 		t.Errorf("Status = %v, CancelledAt = %v", got.Status(), got.CancelledAt())
 	}
 
-	err = meetings.Update(ctx, "m1", func(m *domain.Meeting) error {
-		return m.AddGuest("u-guest", now)
+	err = meetings.Update(ctx, m.ID(), func(m *domain.Meeting) error {
+		return m.AddGuest(domain.NewUserID(), now)
 	})
 	if !errors.Is(err, domain.ErrMeetingCancelled) {
 		t.Fatalf("AddGuest after cancel: want ErrMeetingCancelled, got %v", err)
@@ -252,7 +258,7 @@ func TestMeetingUpdateCancelPersists(t *testing.T) {
 func TestMeetingUpdateNotFound(t *testing.T) {
 	_, meetings := testStores(t)
 
-	err := meetings.Update(context.Background(), "m-missing", func(m *domain.Meeting) error { return nil })
+	err := meetings.Update(context.Background(), domain.NewMeetingID(), func(m *domain.Meeting) error { return nil })
 	if !errors.Is(err, domain.ErrMeetingNotFound) {
 		t.Fatalf("want ErrMeetingNotFound, got %v", err)
 	}
@@ -261,22 +267,23 @@ func TestMeetingUpdateNotFound(t *testing.T) {
 func TestMeetingGetPastStartReconstitutes(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()
-	mustUser(t, users, "u-owner", "owner@example.com")
+	ownerID := mustUser(t, users, "owner@example.com")
 
-	if err := meetings.Create(ctx, mustMeeting(t, "m1", "u-owner")); err != nil {
+	m := mustMeeting(t, ownerID)
+	if err := meetings.Create(ctx, m); err != nil {
 		t.Fatalf("Create: %v", err)
 	}
 	// Editing may move the Start into the past (frozen rule is the only
 	// barrier); loading that Meeting later must not fail validation.
 	pastStart := now.Add(-2 * time.Hour)
-	err := meetings.Update(ctx, "m1", func(m *domain.Meeting) error {
+	err := meetings.Update(ctx, m.ID(), func(m *domain.Meeting) error {
 		return m.EditDetails("Late Sync", pastStart, time.Hour, "", now)
 	})
 	if err != nil {
 		t.Fatalf("Update EditDetails: %v", err)
 	}
 
-	got, err := meetings.Get(ctx, "m1")
+	got, err := meetings.Get(ctx, m.ID())
 	if err != nil {
 		t.Fatalf("Get past meeting: %v", err)
 	}

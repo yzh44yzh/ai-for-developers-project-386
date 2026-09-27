@@ -61,7 +61,7 @@ var (
 // Add registers a new User. Both the ID and the email must be unique.
 func (s *Users) Add(ctx context.Context, u domain.User) error {
 	_, err := s.pool.Exec(ctx,
-		"INSERT INTO users (id, first_name, last_name, description, email) VALUES ($1, $2, $3, $4, $5)",
+		"INSERT INTO users (id, first_name, last_name, description, email) VALUES ($1::uuid, $2, $3, $4, $5)",
 		u.ID, u.FirstName, u.LastName, u.Description, u.Email)
 	if err != nil {
 		var pgErr *pgconn.PgError
@@ -80,7 +80,7 @@ func (s *Users) Add(ctx context.Context, u domain.User) error {
 func (s *Users) Get(ctx context.Context, id domain.UserID) (domain.User, error) {
 	var u domain.User
 	err := s.pool.QueryRow(ctx,
-		"SELECT id, first_name, last_name, description, email FROM users WHERE id = $1", id).
+		"SELECT id::text, first_name, last_name, description, email FROM users WHERE id = $1::uuid", id).
 		Scan(&u.ID, &u.FirstName, &u.LastName, &u.Description, &u.Email)
 	if errors.Is(err, pgx.ErrNoRows) {
 		return domain.User{}, domain.ErrUserNotFound
@@ -91,7 +91,13 @@ func (s *Users) Get(ctx context.Context, id domain.UserID) (domain.User, error) 
 	return u, nil
 }
 
-const meetingColumns = "id, owner_id, title, start, duration_minutes, description, cancelled_at"
+// meetingColumns lists the meetings columns for INSERT; meetingSelect lists
+// them for SELECT, casting uuid columns to text so they scan into the
+// domain's string ID types.
+const (
+	meetingColumns = "id, owner_id, title, start, duration_minutes, description, cancelled_at"
+	meetingSelect  = "id::text, owner_id::text, title, start, duration_minutes, description, cancelled_at"
+)
 
 // Create persists a new Meeting, including any Guests it already carries.
 func (s *Meetings) Create(ctx context.Context, m domain.Meeting) error {
@@ -104,13 +110,13 @@ func (s *Meetings) Create(ctx context.Context, m domain.Meeting) error {
 	defer tx.Rollback(ctx)
 
 	if _, err := tx.Exec(ctx,
-		"INSERT INTO meetings ("+meetingColumns+") VALUES ($1, $2, $3, $4, $5, $6, $7)",
+		"INSERT INTO meetings ("+meetingColumns+") VALUES ($1::uuid, $2::uuid, $3, $4, $5, $6, $7)",
 		snapshot.ID, snapshot.OwnerID, snapshot.Title, snapshot.Start, minutes(snapshot.Duration), snapshot.Description, snapshot.CancelledAt); err != nil {
 		return fmt.Errorf("create meeting: %w", err)
 	}
 	for _, g := range snapshot.Guests {
 		if _, err := tx.Exec(ctx,
-			"INSERT INTO meeting_guests (meeting_id, user_id) VALUES ($1, $2)", snapshot.ID, g); err != nil {
+			"INSERT INTO meeting_guests (meeting_id, user_id) VALUES ($1::uuid, $2::uuid)", snapshot.ID, g); err != nil {
 			return fmt.Errorf("add guest: %w", err)
 		}
 	}
@@ -128,7 +134,7 @@ func (s *Meetings) Get(ctx context.Context, id domain.MeetingID) (domain.Meeting
 
 // List returns all Meetings.
 func (s *Meetings) List(ctx context.Context) ([]domain.Meeting, error) {
-	rows, err := s.pool.Query(ctx, "SELECT "+meetingColumns+" FROM meetings ORDER BY start, id")
+	rows, err := s.pool.Query(ctx, "SELECT "+meetingSelect+" FROM meetings ORDER BY start, id")
 	if err != nil {
 		return nil, fmt.Errorf("list meetings: %w", err)
 	}
@@ -178,16 +184,16 @@ func (s *Meetings) Update(ctx context.Context, id domain.MeetingID, fn func(*dom
 
 	snapshot = m.Snapshot()
 	if _, err := tx.Exec(ctx,
-		"UPDATE meetings SET title = $2, start = $3, duration_minutes = $4, description = $5, cancelled_at = $6 WHERE id = $1",
+		"UPDATE meetings SET title = $2, start = $3, duration_minutes = $4, description = $5, cancelled_at = $6 WHERE id = $1::uuid",
 		snapshot.ID, snapshot.Title, snapshot.Start, minutes(snapshot.Duration), snapshot.Description, snapshot.CancelledAt); err != nil {
 		return fmt.Errorf("update meeting: %w", err)
 	}
-	if _, err := tx.Exec(ctx, "DELETE FROM meeting_guests WHERE meeting_id = $1", id); err != nil {
+	if _, err := tx.Exec(ctx, "DELETE FROM meeting_guests WHERE meeting_id = $1::uuid", id); err != nil {
 		return fmt.Errorf("clear guests: %w", err)
 	}
 	for _, g := range snapshot.Guests {
 		if _, err := tx.Exec(ctx,
-			"INSERT INTO meeting_guests (meeting_id, user_id) VALUES ($1, $2)", id, g); err != nil {
+			"INSERT INTO meeting_guests (meeting_id, user_id) VALUES ($1::uuid, $2::uuid)", id, g); err != nil {
 			return fmt.Errorf("add guest: %w", err)
 		}
 	}
@@ -203,7 +209,7 @@ type querier interface {
 // scanMeeting loads the Meeting row and its Guests. With forUpdate it takes
 // a row lock, so it must run inside a transaction.
 func (s *Meetings) scanMeeting(ctx context.Context, q querier, id domain.MeetingID, forUpdate bool) (domain.MeetingSnapshot, error) {
-	query := "SELECT " + meetingColumns + " FROM meetings WHERE id = $1"
+	query := "SELECT " + meetingSelect + " FROM meetings WHERE id = $1::uuid"
 	if forUpdate {
 		query += " FOR UPDATE"
 	}
@@ -238,7 +244,7 @@ func reconstitute(id domain.MeetingID, snapshot domain.MeetingSnapshot) (domain.
 
 func (s *Meetings) guestIDs(ctx context.Context, q querier, meetingID domain.MeetingID) ([]domain.UserID, error) {
 	rows, err := q.Query(ctx,
-		"SELECT user_id FROM meeting_guests WHERE meeting_id = $1 ORDER BY user_id", meetingID)
+		"SELECT user_id::text FROM meeting_guests WHERE meeting_id = $1::uuid ORDER BY user_id", meetingID)
 	if err != nil {
 		return nil, fmt.Errorf("get guests: %w", err)
 	}
