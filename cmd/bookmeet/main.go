@@ -8,8 +8,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 
-	"github.com/yzh44yzh/bookmeet/internal/hello"
-	"github.com/yzh44yzh/bookmeet/internal/home"
+	"github.com/yzh44yzh/bookmeet/internal/api"
 	"github.com/yzh44yzh/bookmeet/internal/postgres"
 )
 
@@ -33,10 +32,7 @@ func main() {
 		log.Fatalf("ping database: %v", err)
 	}
 
-	mux := http.NewServeMux()
-	mux.HandleFunc("/", home.Handler)
-	mux.HandleFunc("GET /hello", hello.Handler)
-	mux.HandleFunc("POST /hello", hello.BodyLogger)
+	mux := api.NewMux(postgres.NewUsers(pool), postgres.NewMeetings(pool))
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)
