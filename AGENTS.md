@@ -7,6 +7,7 @@
 ## Layout
 
 - `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, wires routes. Migrates and pings PostgreSQL at startup (`DATABASE_URL`, default `postgres://test:test@localhost:5432/testdb?sslmode=disable`).
+- `cmd/seed/main.go` — dev seeder: inserts Users from a fixed roster (`-users`, default 2, max 10) with random Meetings each (`-meetings`, default 3). Skips users whose email already exists (rerun on a seeded DB is a no-op). Same DB wiring as the main binary.
 - `internal/domain/` — core domain model (see `CONTEXT.md`): User, Meeting with the Draft ⇄ Scheduled → Cancelled lifecycle, store interfaces. Pure Go, `now time.Time` injected into mutating methods.
 - `internal/postgres/` — PostgreSQL implementation of the domain stores (pgx/v5); goose migrations in `migrations/`, embedded and applied at startup.
 - `internal/hello/` — greeting page handler for `GET /hello`; body logger for `POST /hello`.
@@ -16,6 +17,7 @@
 ## Commands
 
 - Run: `go run ./cmd/bookmeet`
+- Seed: `go run ./cmd/seed` — flags `-users` (default 2, max 10), `-meetings` (default 3).
 - Build: `go build ./...`
 - Check: `go vet ./...`
 - Test: `go test ./...` — integration tests in `internal/postgres/` need `TEST_DATABASE_URL` set (they truncate all tables; never point them at data you care about) and skip otherwise.
