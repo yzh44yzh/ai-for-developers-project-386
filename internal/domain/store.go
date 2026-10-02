@@ -11,6 +11,7 @@ var ErrMeetingNotFound = errors.New("meeting not found")
 type UserStore interface {
 	Add(ctx context.Context, u User) error
 	Get(ctx context.Context, id UserID) (User, error)
+	GetByEmail(ctx context.Context, email string) (User, error)
 }
 
 // MeetingStore persists Meetings. Update loads the Meeting under a lock,

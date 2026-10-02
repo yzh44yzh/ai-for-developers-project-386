@@ -91,6 +91,21 @@ func (s *Users) Get(ctx context.Context, id domain.UserID) (domain.User, error) 
 	return u, nil
 }
 
+// GetByEmail returns the User with the given email.
+func (s *Users) GetByEmail(ctx context.Context, email string) (domain.User, error) {
+	var u domain.User
+	err := s.pool.QueryRow(ctx,
+		"SELECT id::text, first_name, last_name, description, email FROM users WHERE email = $1", email).
+		Scan(&u.ID, &u.FirstName, &u.LastName, &u.Description, &u.Email)
+	if errors.Is(err, pgx.ErrNoRows) {
+		return domain.User{}, domain.ErrUserNotFound
+	}
+	if err != nil {
+		return domain.User{}, fmt.Errorf("get user by email: %w", err)
+	}
+	return u, nil
+}
+
 // meetingColumns lists the meetings columns for INSERT; meetingSelect lists
 // them for SELECT, casting uuid columns to text so they scan into the
 // domain's string ID types.

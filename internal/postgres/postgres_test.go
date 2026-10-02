@@ -87,6 +87,33 @@ func TestUserGetNotFound(t *testing.T) {
 	}
 }
 
+func TestUserGetByEmail(t *testing.T) {
+	users, _ := testStores(t)
+	ctx := context.Background()
+
+	ada := domain.User{ID: domain.NewUserID(), FirstName: "Ada", LastName: "Lovelace", Description: "First programmer", Email: "ada@example.com"}
+	if err := users.Add(ctx, ada); err != nil {
+		t.Fatalf("Add: %v", err)
+	}
+
+	got, err := users.GetByEmail(ctx, ada.Email)
+	if err != nil {
+		t.Fatalf("GetByEmail: %v", err)
+	}
+	if got != ada {
+		t.Errorf("got %+v, want %+v", got, ada)
+	}
+}
+
+func TestUserGetByEmailNotFound(t *testing.T) {
+	users, _ := testStores(t)
+
+	_, err := users.GetByEmail(context.Background(), "nobody@example.com")
+	if !errors.Is(err, domain.ErrUserNotFound) {
+		t.Fatalf("want ErrUserNotFound, got %v", err)
+	}
+}
+
 func TestUserRejectsDuplicates(t *testing.T) {
 	users, _ := testStores(t)
 	ctx := context.Background()
