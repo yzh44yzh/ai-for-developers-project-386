@@ -10,6 +10,7 @@
 	{{if .}}
 	{{range .}}
 	<h2>{{.Title}}</h2>
+	{{if ne .Status "cancelled"}}<p><a href="/meetings/{{.ID}}/edit">Edit</a></p>{{end}}
 	<dl>
 		<dt>Start</dt>
 		<dd>{{.Start}}</dd>

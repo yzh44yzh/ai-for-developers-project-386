@@ -44,6 +44,9 @@ func main() {
 	mux.Handle("GET /meetings", webMux)
 	mux.Handle("GET /meetings/new", webMux)
 	mux.Handle("POST /meetings/new", webMux)
+	mux.Handle("GET /meetings/{id}/edit", webMux)
+	mux.Handle("POST /meetings/{id}/edit", webMux)
+	mux.Handle("POST /meetings/{id}/edit/cancel", webMux)
 	mux.Handle("/", api.NewMux(users, meetings))
 
 	addr := ":8080"

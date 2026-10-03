@@ -457,6 +457,471 @@ func TestCreateMeetingValidationErrors(t *testing.T) {
 	}
 }
 
+func TestMeetingsListShowsEditLinks(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+	now := time.Now()
+
+	draft := mustMeeting(t, alice.ID, "DraftOne", now.Add(time.Hour), 30*time.Minute)
+	scheduled := mustMeeting(t, alice.ID, "ScheduledOne", now.Add(2*time.Hour), 30*time.Minute)
+	if err := scheduled.AddGuest(bob.ID, now); err != nil {
+		t.Fatalf("AddGuest: %v", err)
+	}
+	cancelled := mustMeeting(t, alice.ID, "CancelledOne", now.Add(3*time.Hour), 30*time.Minute)
+	if err := cancelled.Cancel(now); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	for _, m := range []domain.Meeting{draft, scheduled, cancelled} {
+		if err := meetings.Create(ctx, m); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	rw := get(t, mux, "/meetings", sessionCookie(t, mux, alice.Email))
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rw.Code, http.StatusOK)
+	}
+	body := rw.Body.String()
+	for _, m := range []domain.Meeting{draft, scheduled} {
+		want := `href="/meetings/` + string(m.ID()) + `/edit"`
+		if !strings.Contains(body, want) {
+			t.Errorf("body missing edit link %q", want)
+		}
+	}
+	if unwanted := `href="/meetings/` + string(cancelled.ID()) + `/edit"`; strings.Contains(body, unwanted) {
+		t.Errorf("cancelled meeting should have no edit link %q", unwanted)
+	}
+}
+
+func TestEditMeetingFormRequiresLogin(t *testing.T) {
+	mux := newMux()
+	id := string(domain.NewMeetingID())
+
+	for _, rw := range []*httptest.ResponseRecorder{
+		get(t, mux, "/meetings/"+id+"/edit", nil),
+		postForm(t, mux, "/meetings/"+id+"/edit", url.Values{}, nil),
+		postForm(t, mux, "/meetings/"+id+"/edit/cancel", url.Values{}, nil),
+	} {
+		if rw.Code != http.StatusSeeOther {
+			t.Fatalf("status: got %d, want %d", rw.Code, http.StatusSeeOther)
+		}
+		if loc := rw.Result().Header.Get("Location"); loc != "/login" {
+			t.Fatalf("Location: got %q, want %q", loc, "/login")
+		}
+	}
+}
+
+func TestEditMeetingFormRendersDraft(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	start := time.Now().Add(24 * time.Hour).Truncate(time.Minute)
+	m := mustMeeting(t, alice.ID, "Alpha", start, 45*time.Minute)
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rw := get(t, mux, "/meetings/"+string(m.ID())+"/edit", sessionCookie(t, mux, alice.Email))
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d (body: %s)", rw.Code, http.StatusOK, rw.Body.String())
+	}
+	body := rw.Body.String()
+	for _, want := range []string{
+		`action="/meetings/` + string(m.ID()) + `/edit"`,
+		`name="title"`, `value="Alpha"`,
+		`name="start"`, `value="` + start.Format("2006-01-02T15:04") + `"`,
+		`name="duration"`, `<option value="45" selected>`,
+		`name="description"`, "description of Alpha",
+		`action="/meetings/` + string(m.ID()) + `/edit/cancel"`, "confirm(",
+	} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form missing %q", want)
+		}
+	}
+}
+
+func TestEditMeetingFormRendersScheduled(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+	now := time.Now()
+
+	m := mustMeeting(t, alice.ID, "Alpha", now.Add(24*time.Hour), 30*time.Minute)
+	if err := m.AddGuest(bob.ID, now); err != nil {
+		t.Fatalf("AddGuest: %v", err)
+	}
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rw := get(t, mux, "/meetings/"+string(m.ID())+"/edit", sessionCookie(t, mux, alice.Email))
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rw.Code, http.StatusOK)
+	}
+	body := rw.Body.String()
+	for _, want := range []string{`name="title"`, `name="description"`, "Start:", "Duration: 30 min"} {
+		if !strings.Contains(body, want) {
+			t.Errorf("form missing %q", want)
+		}
+	}
+	for _, unwanted := range []string{`name="start"`, `name="duration"`} {
+		if strings.Contains(body, unwanted) {
+			t.Errorf("scheduled meeting form should not contain %q", unwanted)
+		}
+	}
+}
+
+func TestEditMeetingFormRejections(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+	now := time.Now()
+
+	bobs := mustMeeting(t, bob.ID, "Bobs", now.Add(time.Hour), 30*time.Minute)
+	cancelled := mustMeeting(t, alice.ID, "Cancelled", now.Add(time.Hour), 30*time.Minute)
+	if err := cancelled.Cancel(now); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	frozen, err := domain.MeetingFromSnapshot(domain.MeetingSnapshot{
+		ID: domain.NewMeetingID(), OwnerID: alice.ID, Title: "Frozen",
+		Start: now.Add(-2 * time.Hour), Duration: 30 * time.Minute,
+	})
+	if err != nil {
+		t.Fatalf("MeetingFromSnapshot: %v", err)
+	}
+	for _, m := range []domain.Meeting{bobs, cancelled, frozen} {
+		if err := meetings.Create(ctx, m); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	cookie := sessionCookie(t, mux, alice.Email)
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"unknown id", "/meetings/" + string(domain.NewMeetingID()) + "/edit"},
+		{"malformed id", "/meetings/not-a-uuid/edit"},
+		{"not the owner", "/meetings/" + string(bobs.ID()) + "/edit"},
+		{"cancelled", "/meetings/" + string(cancelled.ID()) + "/edit"},
+		{"frozen", "/meetings/" + string(frozen.ID()) + "/edit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := get(t, mux, tc.path, cookie)
+
+			if rw.Code != http.StatusSeeOther {
+				t.Fatalf("status: got %d, want %d", rw.Code, http.StatusSeeOther)
+			}
+			if loc := rw.Result().Header.Get("Location"); loc != "/meetings" {
+				t.Fatalf("Location: got %q, want %q", loc, "/meetings")
+			}
+		})
+	}
+}
+
+func TestUpdateMeetingDraftSavesAllFields(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	m := mustMeeting(t, alice.ID, "Alpha", time.Now().Add(24*time.Hour), 30*time.Minute)
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+
+	start := time.Now().Add(48 * time.Hour).Truncate(time.Minute)
+	form := url.Values{
+		"title":       {"Alpha v2"},
+		"start":       {start.Format("2006-01-02T15:04")},
+		"duration":    {"60"},
+		"description": {"moved and renamed"},
+	}
+	rw := postForm(t, mux, "/meetings/"+string(m.ID())+"/edit", form, cookie)
+
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("status: got %d, want %d (body: %s)", rw.Code, http.StatusSeeOther, rw.Body.String())
+	}
+	if loc := rw.Result().Header.Get("Location"); loc != "/meetings" {
+		t.Fatalf("Location: got %q, want %q", loc, "/meetings")
+	}
+
+	got, err := meetings.Get(ctx, m.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Title() != "Alpha v2" || got.Description() != "moved and renamed" ||
+		got.Duration() != time.Hour || !got.Start().Equal(start) {
+		t.Errorf("meeting not updated: %+v", got.Snapshot())
+	}
+}
+
+func TestUpdateMeetingValidationErrors(t *testing.T) {
+	cookielessStart := time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")
+
+	cases := []struct {
+		name string
+		form url.Values
+		want string
+	}{
+		{"missing title", url.Values{"start": {cookielessStart}, "duration": {"30"}}, "title is required"},
+		{"bad start", url.Values{"title": {"T"}, "start": {"not-a-date"}, "duration": {"30"}}, "invalid start"},
+		{"non-numeric duration", url.Values{"title": {"T"}, "start": {cookielessStart}, "duration": {"abc"}}, "invalid duration"},
+		{"zero duration", url.Values{"title": {"T"}, "start": {cookielessStart}, "duration": {"0"}}, "duration must be a positive whole number of minutes"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			users, meetings := newStores()
+			mux := web.NewMux(users, meetings)
+			ctx := context.Background()
+
+			m := mustMeeting(t, alice.ID, "Alpha", time.Now().Add(24*time.Hour), 30*time.Minute)
+			if err := meetings.Create(ctx, m); err != nil {
+				t.Fatalf("Create: %v", err)
+			}
+			cookie := sessionCookie(t, mux, alice.Email)
+
+			rw := postForm(t, mux, "/meetings/"+string(m.ID())+"/edit", tc.form, cookie)
+
+			if rw.Code != http.StatusBadRequest {
+				t.Fatalf("status: got %d, want %d", rw.Code, http.StatusBadRequest)
+			}
+			if !strings.Contains(rw.Body.String(), tc.want) {
+				t.Fatalf("body: got %q, want it to contain %q", rw.Body.String(), tc.want)
+			}
+			got, err := meetings.Get(ctx, m.ID())
+			if err != nil {
+				t.Fatalf("Get: %v", err)
+			}
+			if got.Title() != "Alpha" {
+				t.Fatalf("meeting should be unchanged, got title %q", got.Title())
+			}
+		})
+	}
+}
+
+func TestUpdateMeetingScheduledKeepsStartAndDuration(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+	now := time.Now()
+
+	start := now.Add(24 * time.Hour).Truncate(time.Minute)
+	m := mustMeeting(t, alice.ID, "Alpha", start, 30*time.Minute)
+	if err := m.AddGuest(bob.ID, now); err != nil {
+		t.Fatalf("AddGuest: %v", err)
+	}
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+
+	form := url.Values{
+		"title":       {"Alpha v2"},
+		"start":       {now.Add(72 * time.Hour).Format("2006-01-02T15:04")},
+		"duration":    {"90"},
+		"description": {"agenda updated"},
+	}
+	rw := postForm(t, mux, "/meetings/"+string(m.ID())+"/edit", form, cookie)
+
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("status: got %d, want %d (body: %s)", rw.Code, http.StatusSeeOther, rw.Body.String())
+	}
+
+	got, err := meetings.Get(ctx, m.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Title() != "Alpha v2" || got.Description() != "agenda updated" {
+		t.Errorf("title/description not updated: %+v", got.Snapshot())
+	}
+	if !got.Start().Equal(start) || got.Duration() != 30*time.Minute {
+		t.Errorf("scheduled meeting start/duration must not change: %+v", got.Snapshot())
+	}
+}
+
+func TestUpdateMeetingRejections(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	bobs := mustMeeting(t, bob.ID, "Bobs", time.Now().Add(24*time.Hour), 30*time.Minute)
+	if err := meetings.Create(ctx, bobs); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+	form := url.Values{
+		"title": {"Hijacked"}, "start": {time.Now().Add(48 * time.Hour).Format("2006-01-02T15:04")},
+		"duration": {"30"}, "description": {"x"},
+	}
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"unknown id", "/meetings/" + string(domain.NewMeetingID()) + "/edit"},
+		{"malformed id", "/meetings/not-a-uuid/edit"},
+		{"not the owner", "/meetings/" + string(bobs.ID()) + "/edit"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := postForm(t, mux, tc.path, form, cookie)
+
+			if rw.Code != http.StatusSeeOther {
+				t.Fatalf("status: got %d, want %d", rw.Code, http.StatusSeeOther)
+			}
+			if loc := rw.Result().Header.Get("Location"); loc != "/meetings" {
+				t.Fatalf("Location: got %q, want %q", loc, "/meetings")
+			}
+		})
+	}
+	got, err := meetings.Get(ctx, bobs.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Title() != "Bobs" {
+		t.Fatalf("bob's meeting should be unchanged, got title %q", got.Title())
+	}
+}
+
+func TestCancelMeetingViaWeb(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	m := mustMeeting(t, alice.ID, "Alpha", time.Now().Add(24*time.Hour), 30*time.Minute)
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+
+	rw := postForm(t, mux, "/meetings/"+string(m.ID())+"/edit/cancel", url.Values{}, cookie)
+
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("status: got %d, want %d", rw.Code, http.StatusSeeOther)
+	}
+	if loc := rw.Result().Header.Get("Location"); loc != "/meetings" {
+		t.Fatalf("Location: got %q, want %q", loc, "/meetings")
+	}
+
+	got, err := meetings.Get(ctx, m.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Status() != domain.Cancelled {
+		t.Fatalf("Status = %v, want Cancelled", got.Status())
+	}
+}
+
+func TestCancelMeetingRejections(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	bobs := mustMeeting(t, bob.ID, "Bobs", time.Now().Add(24*time.Hour), 30*time.Minute)
+	if err := meetings.Create(ctx, bobs); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+
+	cases := []struct {
+		name string
+		path string
+	}{
+		{"unknown id", "/meetings/" + string(domain.NewMeetingID()) + "/edit/cancel"},
+		{"malformed id", "/meetings/not-a-uuid/edit/cancel"},
+		{"not the owner", "/meetings/" + string(bobs.ID()) + "/edit/cancel"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			rw := postForm(t, mux, tc.path, url.Values{}, cookie)
+
+			if rw.Code != http.StatusSeeOther {
+				t.Fatalf("status: got %d, want %d", rw.Code, http.StatusSeeOther)
+			}
+			if loc := rw.Result().Header.Get("Location"); loc != "/meetings" {
+				t.Fatalf("Location: got %q, want %q", loc, "/meetings")
+			}
+		})
+	}
+	got, err := meetings.Get(ctx, bobs.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if got.Status() == domain.Cancelled {
+		t.Fatal("bob's meeting should not be cancelled")
+	}
+}
+
+func TestEditMeetingFormShowsNonPresetDuration(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	m := mustMeeting(t, alice.ID, "Odd", time.Now().Add(24*time.Hour), 20*time.Minute)
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+
+	rw := get(t, mux, "/meetings/"+string(m.ID())+"/edit", sessionCookie(t, mux, alice.Email))
+
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rw.Code, http.StatusOK)
+	}
+	if want := `<option value="20" selected>`; !strings.Contains(rw.Body.String(), want) {
+		t.Fatalf("body: want current duration as selected option %q", want)
+	}
+}
+
+func TestEditMeetingRoundTripsNonLocalStart(t *testing.T) {
+	users, meetings := newStores()
+	mux := web.NewMux(users, meetings)
+	ctx := context.Background()
+
+	zone := time.FixedZone("UTC+7", 7*3600)
+	start := time.Now().In(zone).Add(24 * time.Hour).Truncate(time.Minute)
+	m := mustMeeting(t, alice.ID, "Imported", start, 30*time.Minute)
+	if err := meetings.Create(ctx, m); err != nil {
+		t.Fatalf("Create: %v", err)
+	}
+	cookie := sessionCookie(t, mux, alice.Email)
+
+	rw := get(t, mux, "/meetings/"+string(m.ID())+"/edit", cookie)
+	if rw.Code != http.StatusOK {
+		t.Fatalf("status: got %d, want %d", rw.Code, http.StatusOK)
+	}
+	// The datetime-local value is the server-local wall time of the Start.
+	localStart := start.In(time.Local).Format("2006-01-02T15:04")
+	if want := `value="` + localStart + `"`; !strings.Contains(rw.Body.String(), want) {
+		t.Fatalf("form missing %q", want)
+	}
+
+	// Saving the form unchanged must not move the Meeting's Start.
+	form := url.Values{
+		"title":       {"Imported"},
+		"start":       {localStart},
+		"duration":    {"30"},
+		"description": {"description of Imported"},
+	}
+	rw = postForm(t, mux, "/meetings/"+string(m.ID())+"/edit", form, cookie)
+	if rw.Code != http.StatusSeeOther {
+		t.Fatalf("status: got %d, want %d (body: %s)", rw.Code, http.StatusSeeOther, rw.Body.String())
+	}
+	got, err := meetings.Get(ctx, m.ID())
+	if err != nil {
+		t.Fatalf("Get: %v", err)
+	}
+	if !got.Start().Equal(start) {
+		t.Errorf("Start moved: got %v, want instant %v", got.Start(), start)
+	}
+}
+
 func TestMeetingsLinksToNewForm(t *testing.T) {
 	mux := newMux()
 	rw := get(t, mux, "/meetings", sessionCookie(t, mux, alice.Email))

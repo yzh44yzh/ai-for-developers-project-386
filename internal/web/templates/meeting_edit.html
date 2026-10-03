@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>BookMeet — Edit meeting</title>
+</head>
+<body>
+	<h1>Edit meeting</h1>
+	{{if .Error}}<p>{{.Error}}</p>{{end}}
+	<form method="post" action="/meetings/{{.ID}}/edit">
+		<p>
+			<label for="title">Title</label>
+			<input type="text" id="title" name="title" value="{{.Title}}" required>
+		</p>
+		{{if .Scheduled}}
+		<p>Start: {{.StartText}}</p>
+		<p>Duration: {{.DurationText}}</p>
+		{{else}}
+		<p>
+			<label for="start">Start</label>
+			<input type="datetime-local" id="start" name="start" step="60" value="{{.Start}}" required>
+		</p>
+		<p>
+			<label for="duration">Duration</label>
+			<select id="duration" name="duration">
+				<option value="15"{{if eq .Duration 15}} selected{{end}}>15 min</option>
+				<option value="30"{{if eq .Duration 30}} selected{{end}}>30 min</option>
+				<option value="45"{{if eq .Duration 45}} selected{{end}}>45 min</option>
+				<option value="60"{{if eq .Duration 60}} selected{{end}}>60 min</option>
+				<option value="90"{{if eq .Duration 90}} selected{{end}}>90 min</option>
+				{{if .CustomDuration}}<option value="{{.Duration}}" selected>{{.Duration}} min</option>{{end}}
+			</select>
+		</p>
+		{{end}}
+		<p>
+			<label for="description">Description</label>
+			<textarea id="description" name="description" rows="3">{{.Description}}</textarea>
+		</p>
+		<button type="submit">Save</button>
+	</form>
+	<form method="post" action="/meetings/{{.ID}}/edit/cancel" onsubmit="return confirm('Cancel this meeting?')">
+		<button type="submit">Cancel meeting</button>
+	</form>
+	<p><a href="/meetings">Back to my meetings</a></p>
+</body>
+</html>
