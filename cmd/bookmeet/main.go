@@ -10,6 +10,7 @@ import (
 
 	"github.com/yzh44yzh/bookmeet/internal/api"
 	"github.com/yzh44yzh/bookmeet/internal/postgres"
+	"github.com/yzh44yzh/bookmeet/internal/web"
 )
 
 func main() {
@@ -32,7 +33,14 @@ func main() {
 		log.Fatalf("ping database: %v", err)
 	}
 
-	mux := api.NewMux(postgres.NewUsers(pool), postgres.NewMeetings(pool))
+	users := postgres.NewUsers(pool)
+	webMux := web.NewMux(users)
+
+	mux := http.NewServeMux()
+	mux.Handle("GET /{$}", webMux)
+	mux.Handle("GET /login", webMux)
+	mux.Handle("POST /login", webMux)
+	mux.Handle("/", api.NewMux(users, postgres.NewMeetings(pool)))
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)

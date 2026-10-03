@@ -6,11 +6,12 @@
 
 ## Layout
 
-- `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, wires `api.NewMux`. Migrates and pings PostgreSQL at startup (`DATABASE_URL`, default `postgres://test:test@localhost:5432/testdb?sslmode=disable`).
+- `cmd/bookmeet/main.go` — entrypoint, serves on `:8080`, mounts `web.NewMux` (HTML login) next to `api.NewMux` on a root mux. Migrates and pings PostgreSQL at startup (`DATABASE_URL`, default `postgres://test:test@localhost:5432/testdb?sslmode=disable`).
 - `cmd/seed/main.go` — dev seeder: inserts Users from a fixed roster (`-users`, default 2, max 10) with random Meetings each (`-meetings`, default 3). Skips users whose email already exists (rerun on a seeded DB is a no-op). Same DB wiring as the main binary.
 - `internal/api/` — JSON HTTP API over the domain stores, `NewMux(users, meetings)` registers all routes. Users: `POST /users`, `GET /users/{id}`, `GET /users?email=`. Meetings: `POST /meetings`, `GET /meetings[/{id}]`, `PATCH /meetings/{id}`, `POST /meetings/{id}/cancel`, `POST/DELETE /meetings/{id}/guests[/{user_id}]`. Errors are `{"error":"..."}`; 400 bad input, 404 unknown, 409 wrong state; mutations return 204.
 - `internal/domain/` — core domain model (see `CONTEXT.md`): User, Meeting with the Draft ⇄ Scheduled → Cancelled lifecycle, store interfaces. Pure Go, `now time.Time` injected into mutating methods.
 - `internal/postgres/` — PostgreSQL implementation of the domain stores (pgx/v5); goose migrations in `migrations/`, embedded and applied at startup.
+- `internal/web/` — HTML pages (server-rendered `html/template`, embedded): email login (`GET/POST /login`) and session-cookie home page (`GET /` → "Hello {first_name} {last_name}", else redirect to `/login`). In-memory sessions (lost on restart), cookie `bookmeet_session`. See `docs/adr/0003-email-login.md`.
 - `.opencode/skills/` — project skills from github.com/mattpocock/skills (installed manually, editable).
 
 ## Commands
