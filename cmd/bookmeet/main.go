@@ -34,13 +34,15 @@ func main() {
 	}
 
 	users := postgres.NewUsers(pool)
-	webMux := web.NewMux(users)
+	meetings := postgres.NewMeetings(pool)
+	webMux := web.NewMux(users, meetings)
 
 	mux := http.NewServeMux()
 	mux.Handle("GET /{$}", webMux)
 	mux.Handle("GET /login", webMux)
 	mux.Handle("POST /login", webMux)
-	mux.Handle("/", api.NewMux(users, postgres.NewMeetings(pool)))
+	mux.Handle("GET /meetings", webMux)
+	mux.Handle("/", api.NewMux(users, meetings))
 
 	addr := ":8080"
 	log.Printf("listening on %s", addr)

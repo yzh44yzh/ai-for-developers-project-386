@@ -92,16 +92,16 @@ func (m Meeting) Guests() []UserID {
 	return guests
 }
 
-// frozen reports whether the Meeting's Start + Duration has passed; a
+// Frozen reports whether the Meeting's Start + Duration has passed; a
 // frozen record rejects all mutations.
-func (m Meeting) frozen(now time.Time) bool {
+func (m Meeting) Frozen(now time.Time) bool {
 	return !now.Before(m.start.Add(m.duration))
 }
 
 // checkMutable enforces the two barriers every mutation shares: a frozen
 // (past) record and a Cancelled Meeting both reject all changes.
 func (m Meeting) checkMutable(now time.Time) error {
-	if m.frozen(now) {
+	if m.Frozen(now) {
 		return ErrMeetingFrozen
 	}
 	if m.cancelledAt != nil {

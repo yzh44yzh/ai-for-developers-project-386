@@ -149,7 +149,17 @@ func (s *Meetings) Get(ctx context.Context, id domain.MeetingID) (domain.Meeting
 
 // List returns all Meetings.
 func (s *Meetings) List(ctx context.Context) ([]domain.Meeting, error) {
-	rows, err := s.pool.Query(ctx, "SELECT "+meetingSelect+" FROM meetings ORDER BY start, id")
+	return s.queryMeetings(ctx, "SELECT "+meetingSelect+" FROM meetings ORDER BY start, id")
+}
+
+// ListByOwner returns all Meetings owned by the given User.
+func (s *Meetings) ListByOwner(ctx context.Context, owner domain.UserID) ([]domain.Meeting, error) {
+	return s.queryMeetings(ctx,
+		"SELECT "+meetingSelect+" FROM meetings WHERE owner_id = $1::uuid ORDER BY start, id", owner)
+}
+
+func (s *Meetings) queryMeetings(ctx context.Context, query string, args ...any) ([]domain.Meeting, error) {
+	rows, err := s.pool.Query(ctx, query, args...)
 	if err != nil {
 		return nil, fmt.Errorf("list meetings: %w", err)
 	}

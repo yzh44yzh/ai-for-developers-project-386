@@ -82,6 +82,20 @@ func (f *fakeMeetingStore) List(_ context.Context) ([]domain.Meeting, error) {
 	return out, nil
 }
 
+func (f *fakeMeetingStore) ListByOwner(ctx context.Context, ownerID domain.UserID) ([]domain.Meeting, error) {
+	all, err := f.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := make([]domain.Meeting, 0, len(all))
+	for _, m := range all {
+		if m.OwnerID() == ownerID {
+			out = append(out, m)
+		}
+	}
+	return out, nil
+}
+
 func (f *fakeMeetingStore) Update(_ context.Context, id domain.MeetingID, fn func(*domain.Meeting) error) error {
 	m, ok := f.meetings[id]
 	if !ok {

@@ -212,6 +212,44 @@ func TestMeetingList(t *testing.T) {
 	}
 }
 
+func TestMeetingListByOwner(t *testing.T) {
+	users, meetings := testStores(t)
+	ctx := context.Background()
+	ownerID := mustUser(t, users, "owner@example.com")
+	otherID := mustUser(t, users, "other@example.com")
+
+	older := mustMeeting(t, ownerID)
+	later, err := domain.NewMeeting(domain.NewMeetingID(), ownerID, "Late", now.Add(2*time.Hour), 30*time.Minute, "", now)
+	if err != nil {
+		t.Fatalf("NewMeeting: %v", err)
+	}
+	for _, m := range []domain.Meeting{later, older, mustMeeting(t, otherID)} {
+		if err := meetings.Create(ctx, m); err != nil {
+			t.Fatalf("Create: %v", err)
+		}
+	}
+
+	owned, err := meetings.ListByOwner(ctx, ownerID)
+	if err != nil {
+		t.Fatalf("ListByOwner: %v", err)
+	}
+	if len(owned) != 2 {
+		t.Fatalf("ListByOwner returned %d meetings, want 2", len(owned))
+	}
+	if owned[0].ID() != older.ID() || owned[1].ID() != later.ID() {
+		t.Errorf("ListByOwner order: got %s, %s; want %s, %s (start asc)",
+			owned[0].ID(), owned[1].ID(), older.ID(), later.ID())
+	}
+
+	none, err := meetings.ListByOwner(ctx, domain.NewUserID())
+	if err != nil {
+		t.Fatalf("ListByOwner unknown owner: %v", err)
+	}
+	if len(none) != 0 {
+		t.Errorf("ListByOwner unknown owner returned %d meetings, want 0", len(none))
+	}
+}
+
 func TestMeetingUpdateAddsAndRemovesGuests(t *testing.T) {
 	users, meetings := testStores(t)
 	ctx := context.Background()

@@ -20,5 +20,6 @@ type MeetingStore interface {
 	Create(ctx context.Context, m Meeting) error
 	Get(ctx context.Context, id MeetingID) (Meeting, error)
 	List(ctx context.Context) ([]Meeting, error)
+	ListByOwner(ctx context.Context, owner UserID) ([]Meeting, error)
 	Update(ctx context.Context, id MeetingID, fn func(*Meeting) error) error
 }

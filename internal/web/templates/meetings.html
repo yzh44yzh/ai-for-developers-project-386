@@ -1,0 +1,33 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>BookMeet — My meetings</title>
+</head>
+<body>
+	<h1>My meetings</h1>
+	{{if .}}
+	{{range .}}
+	<h2>{{.Title}}</h2>
+	<dl>
+		<dt>Start</dt>
+		<dd>{{.Start}}</dd>
+		<dt>Duration</dt>
+		<dd>{{.Duration}}</dd>
+		<dt>Description</dt>
+		<dd>{{.Description}}</dd>
+		<dt>Status</dt>
+		<dd>{{.Status}}</dd>
+		{{if .CancelledAt}}
+		<dt>Cancelled at</dt>
+		<dd>{{.CancelledAt}}</dd>
+		{{end}}
+		<dt>Guests</dt>
+		<dd>{{if .Guests}}{{range $i, $g := .Guests}}{{if $i}}, {{end}}{{$g}}{{end}}{{else}}none{{end}}</dd>
+	</dl>
+	{{end}}
+	{{else}}
+	<p>You have no meetings.</p>
+	{{end}}
+</body>
+</html>
