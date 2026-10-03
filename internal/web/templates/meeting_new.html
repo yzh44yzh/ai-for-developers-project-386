@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+	<meta charset="utf-8">
+	<title>BookMeet — New meeting</title>
+</head>
+<body>
+	<h1>New meeting</h1>
+	{{if .Error}}<p>{{.Error}}</p>{{end}}
+	<form method="post" action="/meetings/new">
+		<p>
+			<label for="title">Title</label>
+			<input type="text" id="title" name="title" required>
+		</p>
+		<p>
+			<label for="start">Start</label>
+			<input type="datetime-local" id="start" name="start" step="60" required>
+		</p>
+		<p>
+			<label for="duration">Duration</label>
+			<select id="duration" name="duration">
+				<option value="15">15 min</option>
+				<option value="30" selected>30 min</option>
+				<option value="45">45 min</option>
+				<option value="60">60 min</option>
+				<option value="90">90 min</option>
+			</select>
+		</p>
+		<p>
+			<label for="description">Description</label>
+			<textarea id="description" name="description" rows="3"></textarea>
+		</p>
+		<button type="submit">Create</button>
+	</form>
+	<p><a href="/meetings">Back to my meetings</a></p>
+</body>
+</html>

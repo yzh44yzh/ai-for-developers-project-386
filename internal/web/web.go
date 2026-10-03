@@ -9,6 +9,7 @@ import (
 	"html/template"
 	"log"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/yzh44yzh/bookmeet/internal/domain"
@@ -30,6 +31,8 @@ func NewMux(users domain.UserStore, meetings domain.MeetingStore) *http.ServeMux
 	mux.HandleFunc("POST /login", w.login)
 	mux.HandleFunc("GET /{$}", w.home)
 	mux.HandleFunc("GET /meetings", w.myMeetings)
+	mux.HandleFunc("GET /meetings/new", w.newMeetingForm)
+	mux.HandleFunc("POST /meetings/new", w.createMeeting)
 	return mux
 }
 
@@ -97,6 +100,75 @@ func (w *web) myMeetings(rw http.ResponseWriter, r *http.Request) {
 		views = append(views, w.toView(r, m))
 	}
 	render(rw, "meetings.html", views)
+}
+
+// meetingFormView renders the create-meeting form.
+type meetingFormView struct {
+	Error string
+}
+
+func (w *web) newMeetingForm(rw http.ResponseWriter, r *http.Request) {
+	if _, ok := w.loggedInUser(r); !ok {
+		http.Redirect(rw, r, "/login", http.StatusSeeOther)
+		return
+	}
+	render(rw, "meeting_new.html", meetingFormView{})
+}
+
+// createMeeting creates a Meeting owned by the logged-in User. On success it
+// redirects to /meetings; on invalid input it re-renders the form with the
+// error (see docs/adr/0005-create-meeting-form.md).
+func (w *web) createMeeting(rw http.ResponseWriter, r *http.Request) {
+	u, ok := w.loggedInUser(r)
+	if !ok {
+		http.Redirect(rw, r, "/login", http.StatusSeeOther)
+		return
+	}
+
+	fail := func(msg string) {
+		rw.WriteHeader(http.StatusBadRequest)
+		render(rw, "meeting_new.html", meetingFormView{Error: msg})
+	}
+
+	title := r.PostFormValue("title")
+	if title == "" {
+		fail("title is required")
+		return
+	}
+	start, err := parseLocalStart(r.PostFormValue("start"))
+	if err != nil {
+		fail("invalid start")
+		return
+	}
+	mins, err := strconv.Atoi(r.PostFormValue("duration"))
+	if err != nil {
+		fail("invalid duration")
+		return
+	}
+
+	m, err := domain.NewMeeting(
+		domain.NewMeetingID(), u.ID, title, start,
+		time.Duration(mins)*time.Minute, r.PostFormValue("description"), time.Now())
+	if err != nil {
+		fail(err.Error())
+		return
+	}
+	if err := w.meetings.Create(r.Context(), m); err != nil {
+		http.Error(rw, "internal error", http.StatusInternalServerError)
+		return
+	}
+	http.Redirect(rw, r, "/meetings", http.StatusSeeOther)
+}
+
+// parseLocalStart parses a datetime-local value ("2006-01-02T15:04") in the
+// server's local timezone; the browser sends no zone (see ADR 0005).
+func parseLocalStart(s string) (time.Time, error) {
+	for _, layout := range []string{"2006-01-02T15:04", "2006-01-02T15:04:05"} {
+		if t, err := time.ParseInLocation(layout, s, time.Local); err == nil {
+			return t, nil
+		}
+	}
+	return time.Time{}, errors.New("invalid datetime-local value")
 }
 
 // meetingView is a Meeting rendered on the my-meetings page.
