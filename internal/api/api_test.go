@@ -96,10 +96,10 @@ func TestCreateUser(t *testing.T) {
 	h, _, _ := newMux()
 
 	rec := do(t, h, "POST", "/users", map[string]any{
-		"first_name": "Ada",
-		"last_name":  "Lovelace",
+		"first_name":  "Ada",
+		"last_name":   "Lovelace",
 		"description": "First programmer",
-		"email":      "ada@example.com",
+		"email":       "ada@example.com",
 	})
 	if rec.Code != http.StatusCreated {
 		t.Fatalf("got %d, body %s", rec.Code, rec.Body)

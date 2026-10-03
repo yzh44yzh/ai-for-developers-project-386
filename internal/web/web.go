@@ -198,7 +198,7 @@ func newEditMeetingView(m domain.Meeting) editMeetingView {
 		Title: m.Title(),
 		// The input value is the server-local wall time, so an open+save
 		// round-trips the same instant regardless of the stored zone.
-		Start: m.Start().In(time.Local).Format("2006-01-02T15:04"),
+		Start:        m.Start().In(time.Local).Format("2006-01-02T15:04"),
 		Duration:     dur,
 		Description:  m.Description(),
 		Scheduled:    m.Status() == domain.Scheduled,
